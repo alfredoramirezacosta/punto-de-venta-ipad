@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Punto de venta</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin:0; background:#0f172a; color:#fff; }
+  header { display:flex; gap:10px; padding:12px 16px; background:#1e293b; align-items:center; }
+  header h1 { font-size:1.2rem; margin:0; flex:1; }
+  .tab { padding:10px 20px; border:0; border-radius:10px; background:#334155; color:#fff; font-size:1rem; }
+  .tab.activa { background:#22c55e; color:#052e16; font-weight:700; }
+  main { padding:16px; max-width:1100px; margin:0 auto; }
+  .oculta { display:none; }
+
+  /* Venta */
+  #ultimo { background:#1e293b; border-radius:16px; padding:20px; text-align:center; margin-bottom:16px; }
+  #uNombre { font-size:2.6rem; min-height:3.2rem; }
+  #uPrecio { font-size:5rem; font-weight:700; color:#4ade80; }
+  #uCodigo { opacity:.6; }
+  .error { color:#f87171 !important; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:10px; text-align:left; border-bottom:1px solid #334155; }
+  td.num, th.num { text-align:right; }
+  #total { font-size:3rem; font-weight:700; text-align:right; padding:16px 0; }
+  button { font-size:1rem; }
+  .btn { padding:10px 16px; border:0; border-radius:10px; background:#334155; color:#fff; }
+  .btn.verde { background:#22c55e; color:#052e16; font-weight:700; }
+  .btn.rojo { background:#ef4444; }
+  .btn.chico { padding:6px 12px; }
+  .filas { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  input.campo { padding:12px; border-radius:10px; border:1px solid #475569; background:#0f172a; color:#fff; font-size:1rem; }
+  #entradaEscaner { position:absolute; opacity:0; width:1px; height:1px; }
+
+  /* Ventana de edición */
+  #fondo { position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; }
+  #fondo.oculta { display:none; }
+  #caja { background:#1e293b; border-radius:16px; padding:24px; width:min(480px, 92vw); display:flex; flex-direction:column; gap:12px; }
+  #caja h2 { margin:0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Punto de venta</h1>
+  <button class="tab activa" id="tabVenta">Venta</button>
+  <button class="tab" id="tabProductos">Productos</button>
+</header>
+
+<main>
+  <!-- PANTALLA DE VENTA -->
+  <section id="pVenta">
+    <div id="ultimo">
+      <div id="uNombre">Escanea un producto</div>
+      <div id="uPrecio"></div>
+      <div id="uCodigo"></div>
+    </div>
+    <table>
+      <thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Importe</th><th></th></tr></thead>
+      <tbody id="cuenta"></tbody>
+    </table>
+    <div id="total">Total: $0.00</div>
+    <button class="btn rojo" id="nuevaVenta">Nueva venta / limpiar cuenta</button>
+    <input id="entradaEscaner" type="text" inputmode="none" autocomplete="off">
+  </section>
+
+  <!-- PANTALLA DE PRODUCTOS -->
+  <section id="pProductos" class="oculta">
+    <div class="filas">
+      <input class="campo" id="buscar" placeholder="Buscar por nombre o código" style="flex:1">
+      <button class="btn verde" id="agregar">+ Agregar producto</button>
+      <button class="btn" id="exportar">Exportar</button>
+      <button class="btn" id="importar">Importar</button>
+      <input type="file" id="archivo" accept=".json" class="oculta">
+    </div>
+    <table>
+      <thead><tr><th>Código</th><th>Descripción</th><th class="num">Precio</th><th></th></tr></thead>
+      <tbody id="lista"></tbody>
+    </table>
+  </section>
+</main>
+
+<!-- VENTANA AGREGAR / EDITAR -->
+<div id="fondo" class="oculta">
+  <div id="caja">
+    <h2 id="tituloCaja">Producto</h2>
+    <input class="campo" id="fCodigo" placeholder="Código de barras" inputmode="text">
+    <input class="campo" id="fNombre" placeholder="Descripción">
+    <input class="campo" id="fPrecio" placeholder="Precio" inputmode="decimal">
+    <div class="filas">
+      <button class="btn verde" id="guardar">Guardar</button>
+      <button class="btn" id="cancelar">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Datos ----------
+  let productos = JSON.parse(localStorage.getItem('productos') || 'null') || {
+    "7501055300075": { nombre: "Agua natural 1L", precio: 18.5 },
+    "7501000112345": { nombre: "Galletas María", precio: 25 },
+    "7501031311309": { nombre: "Refresco cola 600 ml", precio: 21 }
+  };
+  let cuenta = []; // { codigo, cantidad }
+  let codigoEditando = null;
+
+  const $ = (id) => document.getElementById(id);
+  const dinero = (n) => '$' + Number(n).toFixed(2);
+  const guardarDatos = () => localStorage.setItem('productos', JSON.stringify(productos));
+
+  // ---------- Pestañas ----------
+  function mostrar(pantalla) {
+    $('pVenta').classList.toggle('oculta', pantalla !== 'venta');
+    $('pProductos').classList.toggle('oculta', pantalla !== 'productos');
+    $('tabVenta').classList.toggle('activa', pantalla === 'venta');
+    $('tabProductos').classList.toggle('activa', pantalla === 'productos');
+    if (pantalla === 'productos') pintarLista();
+    enfocarEscaner();
+  }
+  $('tabVenta').onclick = () => mostrar('venta');
+  $('tabProductos').onclick = () => mostrar('productos');
+
+  // ---------- Escáner (pantalla de venta) ----------
+  const entrada = $('entradaEscaner');
+  function enfocarEscaner() {
+    const ventanaAbierta = !$('fondo').classList.contains('oculta');
+    const enVenta = !$('pVenta').classList.contains('oculta');
+    if (enVenta && !ventanaAbierta) entrada.focus();
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('button, input, #caja')) enfocarEscaner();
+  });
+  entrada.addEventListener('blur', () => setTimeout(enfocarEscaner, 100));
+
+  entrada.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const cod = entrada.value.trim();
+    entrada.value = '';
+    if (cod) procesarCodigo(cod);
+  });
+
+  function procesarCodigo(cod) {
+    $('uCodigo').textContent = cod;
+    const p = productos[cod];
+    if (!p) {
+      $('uNombre').classList.add('error');
+      $('uNombre').textContent = 'Producto no encontrado';
+      $('uPrecio').textContent = '';
+      if (confirm('El código ' + cod + ' no existe. ¿Quieres agregarlo?')) abrirCaja(null, cod);
+      return;
+    }
+    $('uNombre').classList.remove('error');
+    $('uNombre').textContent = p.nombre;
+    $('uPrecio').textContent = dinero(p.precio);
+    const linea = cuenta.find(l => l.codigo === cod);
+    if (linea) linea.cantidad++; else cuenta.push({ codigo: cod, cantidad: 1 });
+    pintarCuenta();
+  }
+
+  function pintarCuenta() {
+    let total = 0;
+    $('cuenta').innerHTML = '';
+    cuenta.forEach((l, i) => {
+      const p = productos[l.codigo];
+      if (!p) return;
+      const importe = p.precio * l.cantidad;
+      total += importe;
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td class="num">' + l.cantidad + '</td><td class="num">' + dinero(p.precio) + '</td><td class="num">' + dinero(importe) + '</td><td></td>';
+      tr.children[0].textContent = p.nombre;
+      const quitar = document.createElement('button');
+      quitar.className = 'btn chico rojo';
+      quitar.textContent = 'Quitar';
+      quitar.onclick = () => { cuenta.splice(i, 1); pintarCuenta(); };
+      tr.children[4].appendChild(quitar);
+      $('cuenta').appendChild(tr);
+    });
+    $('total').textContent = 'Total: ' + dinero(total);
+  }
+
+  $('nuevaVenta').onclick = () => {
+    cuenta = [];
+    pintarCuenta();
+    $('uNombre').classList.remove('error');
+    $('uNombre').textContent = 'Escanea un producto';
+    $('uPrecio').textContent = '';
+    $('uCodigo').textContent = '';
+  };
+
+  // ---------- Catálogo ----------
+  function pintarLista() {
+    const filtro = $('buscar').value.trim().toLowerCase();
+    $('lista').innerHTML = '';
+    Object.entries(productos)
+      .filter(([cod, p]) => !filtro || cod.includes(filtro) || p.nombre.toLowerCase().includes(filtro))
+      .sort((a, b) => a[1].nombre.localeCompare(b[1].nombre))
+      .forEach(([cod, p]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td></td><td></td><td class="num">' + dinero(p.precio) + '</td><td class="num"></td>';
+        tr.children[0].textContent = cod;
+        tr.children[1].textContent = p.nombre;
+        const editar = document.createElement('button');
+        editar.className = 'btn chico';
+        editar.textContent = 'Editar';
+        editar.onclick = () => abrirCaja(cod);
+        const borrar = document.createElement('button');
+        borrar.className = 'btn chico rojo';
+        borrar.style.marginLeft = '8px';
+        borrar.textContent = 'Eliminar';
+        borrar.onclick = () => {
+          if (confirm('¿Eliminar "' + p.nombre + '"?')) {
+            delete productos[cod];
+            cuenta = cuenta.filter(l => l.codigo !== cod);
+            guardarDatos();
+            pintarLista();
+          }
+        };
+        tr.children[3].append(editar, borrar);
+        $('lista').appendChild(tr);
+      });
+  }
+  $('buscar').oninput = pintarLista;
+  $('agregar').onclick = () => abrirCaja(null);
+
+  function abrirCaja(cod, codigoNuevo) {
+    codigoEditando = cod;
+    $('tituloCaja').textContent = cod ? 'Modificar producto' : 'Agregar producto';
+    $('fCodigo').value = cod || codigoNuevo || '';
+    $('fNombre').value = cod ? productos[cod].nombre : '';
+    $('fPrecio').value = cod ? productos[cod].precio : '';
+    $('fondo').classList.remove('oculta');
+    (cod || codigoNuevo ? $('fNombre') : $('fCodigo')).focus();
+  }
+  function cerrarCaja() { $('fondo').classList.add('oculta'); enfocarEscaner(); }
+  $('cancelar').onclick = cerrarCaja;
+
+  $('guardar').onclick = () => {
+    const cod = $('fCodigo').value.trim();
+    const nombre = $('fNombre').value.trim();
+    const precio = parseFloat($('fPrecio').value);
+    if (!cod || !nombre || isNaN(precio) || precio < 0) {
+      alert('Completa código, descripción y un precio válido.');
+      return;
+    }
+    if (cod !== codigoEditando && productos[cod]) {
+      alert('Ya existe un producto con ese código.');
+      return;
+    }
+    if (codigoEditando && cod !== codigoEditando) delete productos[codigoEditando];
+    productos[cod] = { nombre, precio };
+    guardarDatos();
+    cerrarCaja();
+    pintarLista();
+    pintarCuenta();
+  };
+
+  // El escáner también sirve para llenar el campo de código al agregar
+  $('fCodigo').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); $('fNombre').focus(); }
+  });
+
+  // ---------- Respaldo ----------
+  $('exportar').onclick = () => {
+    const blob = new Blob([JSON.stringify(productos, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'productos.json';
+    a.click();
+  };
+  $('importar').onclick = () => $('archivo').click();
+  $('archivo').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const datos = JSON.parse(await f.text());
+      if (confirm('Esto reemplazará tu catálogo actual. ¿Continuar?')) {
+        productos = datos;
+        guardarDatos();
+        pintarLista();
+      }
+    } catch { alert('Archivo no válido.'); }
+    e.target.value = '';
+  };
+
+  mostrar('venta');
+</script>
+</body>
+</html>
